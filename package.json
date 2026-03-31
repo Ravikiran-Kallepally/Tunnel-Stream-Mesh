@@ -1,0 +1,19 @@
+{
+  "name": "omnitunnel-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "start:signaling": "ts-node apps/signaling/src/server.ts",
+    "start:desktop": "electron apps/desktop/src/main.ts",
+    "dev:web": "vite apps/web"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.1",
+    "vite": "^5.0.0"
+  }
+}
