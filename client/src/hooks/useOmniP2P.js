@@ -28,8 +28,7 @@ export const useOmniP2P = (serverUrl) => {
   useEffect(() => {
     socketRef.current = io(serverUrl);
 
-    // 2. Global Signal Listener (Handles the handshake exchange)
-    socketRef.current.on('signal', ({from, signal }) => {
+    socketRef.current.on('signal', ({ signal }) => {
       if (peerRef.current && !peerRef.current.destroyed) {
         try {
           peerRef.current.signal(signal);
@@ -131,56 +130,52 @@ export const useOmniP2P = (serverUrl) => {
     });
   };
 
-  const sendFile = (file) => {
-  if (!peerRef.current || !file) return;
-  setFileName(file.name);
-  setStatus('STREAMING');
-
-  peerRef.current.send(JSON.stringify({ 
-    type: 'meta', 
-    name: file.name, 
-    size: file.size 
-  }));
-
-  const chunkSize = 16384; // 16KB
-  let offset = 0;
-  const reader = new FileReader();
-
-  // The "Smart" sender
-  const readNext = () => {
-    // If the "funnel" is too full (more than 1MB waiting), stop and wait
-    if (peerRef.current._channel.bufferedAmount > 1024 * 1024) {
-      // Wait for the buffer to empty before continuing
-      peerRef.current._channel.onbufferedamountlow = () => {
-        peerRef.current._channel.onbufferedamountlow = null;
-        readNext();
-      };
+  // REFACTORED: SendFile with Closure Protection
+  const sendFile = useCallback((file) => {
+    const peer = peerRef.current;
+    if (!peer || !file) {
+      console.error("[P2P] Cannot send: Peer connection not ready.");
       return;
     }
 
-    if (offset < file.size) {
-      const slice = file.slice(offset, offset + chunkSize);
-      reader.readAsArrayBuffer(slice);
-    } else {
-      setStatus('DONE');
-    }
-  };
-
-  reader.onload = (e) => {
-    if (!peerRef.current) return;
+    setFileName(file.name);
+    setStatus('STREAMING');
     
-    try {
-      peerRef.current.send(e.target.result);
+    // Step 1: Send Metadata
+    peer.send(JSON.stringify({ type: 'meta', name: file.name, size: file.size }));
+
+    const chunkSize = 16384; 
+    let offset = 0;
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      if (!peer || peer.destroyed) return;
+      
+      peer.send(e.target.result);
       offset += e.target.result.byteLength;
       setProgress(Math.round((offset / file.size) * 100));
-      readNext(); 
-    } catch (err) {
-      console.error("Send failed:", err);
-    }
-  };
 
-  readNext();
-};
+      if (offset < file.size) {
+        // Backpressure check: wait if the buffer is getting too full
+        if (peer.bufferedAmount > 8 * 1024 * 1024) {
+           setTimeout(readNext, 50);
+        } else {
+           readNext();
+        }
+      } else {
+        setStatus('DONE');
+      }
+    };
+
+    const readNext = () => {
+      if (offset < file.size) {
+        const slice = file.slice(offset, offset + chunkSize);
+        reader.readAsArrayBuffer(slice);
+      }
+    };
+
+    readNext();
+  }, []);
 
   return { code, status, progress, fileName, initSender, initReceiver, sendFile };
 };
