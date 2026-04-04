@@ -29,6 +29,8 @@ io.on('connection', (socket) => {
     if (hostId) {
       socket.join(code);
       io.to(hostId).emit('peer:joined', { peerId: socket.id });
+      socket.emit('peer:joined', { peerId: hostId });
+
       console.log(`Peer Joined Tunnel: ${code}`);
     } else {
       socket.emit('error:msg', 'Invalid or Expired Code');
@@ -40,9 +42,17 @@ io.on('connection', (socket) => {
     io.to(to).emit('signal', { from: socket.id, signal });
   });
 
-  socket.on('disconnect', () => {
-    for (const [code, id] of rooms.entries()) {
-      if (id === socket.id) rooms.delete(code);
+  socket.on('disconnecting', () => {
+    // socket.rooms contains all rooms the user is currently in
+    for (const room of socket.rooms) {
+      if (room !== socket.id) {
+        // Notify the other person in the room that their partner left
+        socket.to(room).emit('peer:disconnected');
+        // If the host leaves, clean up the map
+        for (const [code, id] of rooms.entries()) {
+          if (id === socket.id) rooms.delete(code);
+        }
+      }
     }
   });
 });
